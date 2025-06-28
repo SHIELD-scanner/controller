@@ -1,10 +1,6 @@
 name: Lint Python with Ruff
 
 on:
-  push:
-    paths:
-      - "**.py"
-      - "requirements.txt"
   pull_request:
     paths:
       - "**.py"
