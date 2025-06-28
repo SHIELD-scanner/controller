@@ -1,14 +1,10 @@
 name: Lint Python with Ruff
 
 on:
-  push:
-    paths:
-      - '**.py'
-      - 'requirements.txt'
   pull_request:
     paths:
-      - '**.py'
-      - 'requirements.txt'
+      - "**.py"
+      - "requirements.txt"
 
 jobs:
   lint:
@@ -19,9 +15,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: "3.13"
       - name: Install Ruff
         run: pip install ruff
       - name: Run Ruff
         run: ruff check .
-        

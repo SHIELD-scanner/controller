@@ -10,6 +10,8 @@ with open(CONFIG_PATH) as f:
 
 MONGO_URI = cfg["mongo_uri"]
 MONGO_DB = cfg["mongo_db"]
+
+
 def get_cluster_name(logger):
     try:
         v1 = client.CoreV1Api()
@@ -21,20 +23,30 @@ def get_cluster_name(logger):
                 "eks.amazonaws.com/cluster-name",
             ]:
                 if key in node.metadata.labels:
-                    logger.info(f"Detected cluster name from node label: {node.metadata.labels[key]}")
+                    logger.info(
+                        f"Detected cluster name from node label: {node.metadata.labels[key]}"
+                    )
                     return node.metadata.labels[key]
     except Exception as e:
         logger.debug(f"Could not get cluster name from node labels: {e}")
 
     try:
         _, active_context = config.list_kube_config_contexts()
-        if active_context and "context" in active_context and "cluster" in active_context["context"]:
-            logger.info(f"Detected cluster name from kubeconfig: {active_context['context']['cluster']}")
+        if (
+            active_context
+            and "context" in active_context
+            and "cluster" in active_context["context"]
+        ):
+            logger.info(
+                f"Detected cluster name from kubeconfig: {active_context['context']['cluster']}"
+            )
             return active_context["context"]["cluster"]
     except Exception as e:
         logger.debug(f"Could not get cluster name from kubeconfig: {e}")
 
-    logger.info(f"Using cluster name from config: {cfg.get('cluster', 'unknown-cluster')}")
+    logger.info(
+        f"Using cluster name from config: {cfg.get('cluster', 'unknown-cluster')}"
+    )
     return cfg.get("cluster", "unknown-cluster")
 
 
@@ -46,6 +58,7 @@ CLUSTER = get_cluster_name(logger)
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[MONGO_DB]
 
+
 def load_kube_config():
     try:
         config.load_incluster_config()
@@ -53,6 +66,7 @@ def load_kube_config():
     except config.ConfigException:
         config.load_kube_config()
         logger.info("Loaded local kube config")
+
 
 load_kube_config()
 
@@ -70,6 +84,7 @@ aqua_resources = [
     "rbacassessmentreports",
     "sbomreports",
 ]
+
 
 def sync_to_mongo(resource_type, obj, event_type):
     meta = obj.get("metadata", {})
@@ -105,9 +120,12 @@ def initial_import_resource(resource_type):
                 current_uids.add(uid)
             sync_to_mongo(resource_type, obj, "INITIAL_IMPORT")
         result = db[resource_type].delete_many({"_uid": {"$nin": list(current_uids)}})
-        logger.info(f"Removed {result.deleted_count} stale records from {resource_type}")
+        logger.info(
+            f"Removed {result.deleted_count} stale records from {resource_type}"
+        )
     except Exception as e:
         logger.error(f"Error during initial import of {resource_type}: {e}")
+
 
 def watch_resource(resource_type):
     group = "aquasecurity.github.io"
@@ -117,7 +135,13 @@ def watch_resource(resource_type):
     w = watch.Watch()
     while True:
         try:
-            for event in w.stream(api.list_cluster_custom_object, group, version, plural, timeout_seconds=60):
+            for event in w.stream(
+                api.list_cluster_custom_object,
+                group,
+                version,
+                plural,
+                timeout_seconds=60,
+            ):
                 obj = event["object"]
                 event_type = event["type"]
                 sync_to_mongo(resource_type, obj, event_type)
@@ -159,6 +183,7 @@ def initial_import_namespaces():
     except Exception as e:
         logger.error(f"Error during initial import of namespaces: {e}")
 
+
 def watch_namespaces():
     v1 = client.CoreV1Api()
     w = watch.Watch()
@@ -171,8 +196,10 @@ def watch_namespaces():
         except Exception as e:
             logger.error(f"Error watching namespaces: {e}")
 
+
 if __name__ == "__main__":
     import threading
+
     for res in aqua_resources:
         initial_import_resource(res)
     initial_import_namespaces()
