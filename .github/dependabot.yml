@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/Users/jabbo/shield-controller/controller/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "docker"
+    directory: "/Users/jabbo/shield-controller/controller/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "github-actions"
+    directory: "/Users/jabbo/shield-controller/controller/"
+    schedule:
+      interval: "daily"
