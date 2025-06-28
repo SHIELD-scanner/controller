@@ -1,0 +1,6 @@
+{
+  "cluster": "acc",
+  "mongo_uri": "mongodb+srv://<user>:<password>@<host>/",
+  "mongo_db": "shield",
+  "log_level": "info"
+}
