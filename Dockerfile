@@ -1,10 +1,15 @@
-FROM python:3.13-slim
+# syntax=docker/dockerfile:1
 
+FROM golang:1.21-alpine AS builder
 WORKDIR /app
-
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
+RUN cd cmd/controller && go build -o /app/controller
 
-CMD ["python", "sync_controller.py"]
+FROM alpine:3.19
+WORKDIR /app
+COPY --from=builder /app/controller ./controller
+COPY config.local.json ./config.local.json
+COPY logs ./logs
+ENTRYPOINT ["./controller"]

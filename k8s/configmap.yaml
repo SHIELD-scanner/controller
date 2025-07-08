@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shield-controller-config
+  namespace: shield-system
+  labels:
+    app: shield-controller
+data:
+  config.local.json: |
+    {
+      "mongo_uri": "mongodb://mongo:27017",
+      "mongo_db": "shield",
+      "cluster": "my-cluster",
+      "log_level": "debug",
+      "log_dir": "/logs",
+      "save_logs": true
+    }

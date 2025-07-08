@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shield-controller
+  namespace: shield-system
+  labels:
+    app: shield-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shield-controller
+  template:
+    metadata:
+      labels:
+        app: shield-controller
+    spec:
+      serviceAccountName: shield-controller
+      containers:
+        - name: controller
+          image: <your-image>:<tag>
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG_PATH
+              value: /config/config.local.json
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: logs
+              mountPath: /logs
+      volumes:
+        - name: config
+          configMap:
+            name: shield-controller-config
+        - name: logs
+          emptyDir: {}
