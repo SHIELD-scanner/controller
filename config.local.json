@@ -1,5 +1,9 @@
 {
   "mongo_uri": "mongodb://0.0.0.0:27017/",
-  "mongo_db": "shield",
-  "log_level": "debug"
+  "mongo_db": "shield2",
+  "log_level": "debug",
+  "falco": {
+    "enabled": true,
+    "namespace": "falco-system"
+  }
 }

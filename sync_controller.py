@@ -3,6 +3,7 @@ import json
 import logging
 from kubernetes import client, config, watch
 from pymongo import MongoClient
+from falco_client import FalcoAlertConsumer
 
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "./config.local.json")
 with open(CONFIG_PATH) as f:
@@ -70,6 +71,7 @@ def load_kube_config():
 
 load_kube_config()
 
+# Aqua Security resources
 aqua_resources = [
     "vulnerabilityreports",
     "clustercompliancereports",
@@ -85,11 +87,31 @@ aqua_resources = [
     "sbomreports",
 ]
 
+# Falco resources
+falco_resources = [
+    "falcos",
+    "falcorules",
+    "falcorulegroupses",
+]
 
-def sync_to_mongo(resource_type, obj, event_type):
+# Resource groups configuration
+resource_groups = {
+    "aquasecurity.github.io": {
+        "version": "v1alpha1",
+        "resources": aqua_resources,
+    },
+    "falco.security.io": {
+        "version": "v1alpha1",
+        "resources": falco_resources,
+    },
+}
+
+
+def sync_to_mongo(api_group, resource_type, obj, event_type):
     meta = obj.get("metadata", {})
     doc = {
         "_event_type": event_type,
+        "_api_group": api_group,
         "_resource_type": resource_type,
         "_namespace": meta.get("namespace"),
         "_name": meta.get("name"),
@@ -98,55 +120,82 @@ def sync_to_mongo(resource_type, obj, event_type):
     }
     uid = meta.get("uid")
     if not uid:
-        logger.warning(f"No UID for {resource_type} {meta.get('name')}")
+        logger.warning(f"No UID for {api_group}/{resource_type} {meta.get('name')}")
         return
-    db[resource_type].replace_one({"_uid": uid}, {"_uid": uid, **doc}, upsert=True)
-    logger.info(f"Synced {resource_type} {meta.get('name')} ({event_type})")
+
+    # Use api_group + resource_type as collection name to avoid conflicts
+    collection_name = f"{api_group.replace('.', '_')}_{resource_type}"
+    db[collection_name].replace_one({"_uid": uid}, {"_uid": uid, **doc}, upsert=True)
+    logger.info(f"Synced {api_group}/{resource_type} {meta.get('name')} ({event_type})")
 
 
-def initial_import_resource(resource_type):
-    group = "aquasecurity.github.io"
-    version = "v1alpha1"
-    plural = resource_type
+def check_crd_exists(api_group, resource_type):
+    """Check if a CRD exists in the cluster"""
+    try:
+        api = client.ApiextensionsV1Api()
+        crd_name = f"{resource_type}.{api_group}"
+        api.read_custom_resource_definition(crd_name)
+        return True
+    except Exception:
+        return False
+
+
+def initial_import_resource(api_group, version, resource_type):
+    if not check_crd_exists(api_group, resource_type):
+        logger.warning(f"CRD {resource_type}.{api_group} not found, skipping")
+        return
+
     api = client.CustomObjectsApi()
     try:
-        objs = api.list_cluster_custom_object(group, version, plural)
+        objs = api.list_cluster_custom_object(api_group, version, resource_type)
         items = objs.get("items", [])
-        logger.info(f"Initial import: {len(items)} {resource_type}")
+        logger.info(f"Initial import: {len(items)} {api_group}/{resource_type}")
         current_uids = set()
         for obj in items:
             uid = obj.get("metadata", {}).get("uid")
             if uid:
                 current_uids.add(uid)
-            sync_to_mongo(resource_type, obj, "INITIAL_IMPORT")
-        result = db[resource_type].delete_many({"_uid": {"$nin": list(current_uids)}})
+            sync_to_mongo(api_group, resource_type, obj, "INITIAL_IMPORT")
+
+        collection_name = f"{api_group.replace('.', '_')}_{resource_type}"
+        result = db[collection_name].delete_many({"_uid": {"$nin": list(current_uids)}})
         logger.info(
-            f"Removed {result.deleted_count} stale records from {resource_type}"
+            f"Removed {result.deleted_count} stale records from {api_group}/{resource_type}"
         )
     except Exception as e:
-        logger.error(f"Error during initial import of {resource_type}: {e}")
+        logger.error(f"Error during initial import of {api_group}/{resource_type}: {e}")
 
 
-def watch_resource(resource_type):
-    group = "aquasecurity.github.io"
-    version = "v1alpha1"
-    plural = resource_type
+def watch_resource(api_group, version, resource_type):
+    if not check_crd_exists(api_group, resource_type):
+        logger.warning(f"CRD {resource_type}.{api_group} not found, skipping watcher")
+        return
+
     api = client.CustomObjectsApi()
     w = watch.Watch()
     while True:
         try:
             for event in w.stream(
                 api.list_cluster_custom_object,
-                group,
+                api_group,
                 version,
-                plural,
+                resource_type,
                 timeout_seconds=60,
             ):
                 obj = event["object"]
                 event_type = event["type"]
-                sync_to_mongo(resource_type, obj, event_type)
+                sync_to_mongo(api_group, resource_type, obj, event_type)
         except Exception as e:
-            logger.error(f"Error watching {resource_type}: {e}")
+            logger.error(f"Error watching {api_group}/{resource_type}: {e}")
+            if "404" in str(e):
+                logger.warning(
+                    f"CRD {resource_type}.{api_group} was removed, stopping watcher"
+                )
+                break
+            # Wait before retrying on other errors
+            import time
+
+            time.sleep(30)
 
 
 def sync_namespace_to_mongo(obj, event_type):
@@ -200,18 +249,76 @@ def watch_namespaces():
 if __name__ == "__main__":
     import threading
 
-    for res in aqua_resources:
-        initial_import_resource(res)
+    # Check which CRDs are available before starting
+    logger.info("Checking available CRDs...")
+    available_groups = {}
+    # for api_group, config_data in resource_groups.items():
+    #     available_resources = []
+    #     for resource_type in config_data["resources"]:
+    #         if check_crd_exists(api_group, resource_type):
+    #             available_resources.append(resource_type)
+    #             logger.info(f"✅ Found CRD: {resource_type}.{api_group}")
+    #         else:
+    #             logger.warning(f"❌ Missing CRD: {resource_type}.{api_group}")
+
+    #     if available_resources:
+    #         available_groups[api_group] = {
+    #             "version": config_data["version"],
+    #             "resources": available_resources,
+    #         }
+    #     else:
+    #         logger.warning(f"No CRDs found for API group: {api_group}")
+
+    # Initial import for available resource groups only
+    for api_group, config_data in available_groups.items():
+        version = config_data["version"]
+        for resource_type in config_data["resources"]:
+            initial_import_resource(api_group, version, resource_type)
+
     initial_import_namespaces()
 
     threads = []
-    for res in aqua_resources:
-        t = threading.Thread(target=watch_resource, args=(res,), daemon=True)
-        t.start()
-        threads.append(t)
+
+    # Start watchers for available resource groups only
+    # for api_group, config_data in available_groups.items():
+    #     version = config_data["version"]
+    #     for resource_type in config_data["resources"]:
+    #         t = threading.Thread(
+    #             target=watch_resource,
+    #             args=(api_group, version, resource_type),
+    #             daemon=True,
+    #         )
+    #         t.start()
+    #         threads.append(t)
+
+    # Start namespace watcher
     t_ns = threading.Thread(target=watch_namespaces, daemon=True)
     t_ns.start()
     threads.append(t_ns)
-    logger.info("Controller started. Watching resources and namespaces...")
+
+    # Start Falco alert consumer if enabled
+    falco_config = cfg.get("falco", {})
+    if falco_config.get("enabled", False):
+        logger.info("Starting Falco alert consumer...")
+        falco_consumer = FalcoAlertConsumer(
+            mongo_db=db,
+            cluster_name=CLUSTER,
+            logger=logger,
+            namespace=falco_config.get("namespace", "falco-system"),
+        )
+        falco_consumer.start()
+    else:
+        logger.info("Falco integration disabled in configuration")
+
+    if available_groups:
+        available_apis = ", ".join(available_groups.keys())
+        logger.info(
+            f"Controller started. Watching {available_apis} resources and namespaces..."
+        )
+    else:
+        logger.info(
+            "Controller started. Only watching namespaces (no custom resource CRDs found)..."
+        )
+
     for t in threads:
         t.join()
