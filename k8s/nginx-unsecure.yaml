@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: unsecure
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-old
+  namespace: unsecure
+  labels:
+    app: nginx-old
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-old
+  template:
+    metadata:
+      labels:
+        app: nginx-old
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.14 # Old version with known vulnerabilities
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-old
+  namespace: unsecure
+spec:
+  selector:
+    app: nginx-old
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
