@@ -13,6 +13,9 @@ MONGO_DB = cfg["mongo_db"]
 
 
 def get_cluster_name(logger):
+    if "cluster" in cfg:
+        logger.info(f"Using cluster name from config: {cfg['cluster']}")
+        return cfg["cluster"]
     try:
         v1 = client.CoreV1Api()
         nodes = v1.list_node()
