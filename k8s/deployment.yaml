@@ -12,7 +12,7 @@ metadata:
 data:
   config.json: |
     {
-      "mongo_uri": "mongodb://ricardo:AdminExample@mongo-1.shield.svc.cluster.local:32017/",
+      "mongo_uri": "mongodb://ricardo:AdminExample@mongo-1.shield-system.svc.cluster.local:27017/",
       "mongo_db": "shield",
       "cluster": "acc",
       "log_level": "debug",
