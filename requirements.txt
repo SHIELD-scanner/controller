@@ -1,3 +1,4 @@
 kubernetes
 pymongo
 PyYAML
+sentry-sdk

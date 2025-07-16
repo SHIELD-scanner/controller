@@ -3,6 +3,16 @@ import json
 import logging
 from kubernetes import client, config, watch
 from pymongo import MongoClient
+import sentry_sdk
+
+sentry_dsn = os.environ.get("DSN")
+if sentry_dsn:
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        # Add data like request headers and IP for users,
+        # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
+        send_default_pii=True,
+    )
 
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "./config.local.json")
 with open(CONFIG_PATH) as f:
